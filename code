@@ -1,0 +1,702 @@
+#ifdef _MSC_VER                             //We use these so we can use fopen instead of fopen_s
+#define _CRT_SECURE_NO_WARNINGS             //We use these so we can use fopen instead of fopen_s
+#endif                                      //We use these so we can use fopen instead of fopen_s
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <windows.h>                         //need this for SLEEP and coords.
+
+// CODE BY STEFAN DIMOV - TU
+
+#define PATH_COST 1
+
+
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+#define ANSI_COLOR_GRAY   "\x1b[90m"
+
+typedef struct NodeStruct {         //Creates a struct NodeStruct with members X,Y,G,H,F,IsWall, and pointers to other NodeStruct structs.
+    int x;
+    int y;
+    int IsWall;                     // 0 = is a wall, 1 = is a path.
+    int g;                          // Distance from Node to StartNode.
+    int h;                          // Estimated distance from Node to EndNode
+    int f;                          // Overall distance from start to finish
+    struct NodeStruct* Parent;      // Holds a pointer to the Node from which we arrived.
+    struct NodeStruct* pNext;       //Used to make a dynamic list of NodeStructs.
+} Node;                             //Calls the NodeStruct struct simply as Node for convenience.
+
+
+
+void CalculateH(Node* node, Node* TargetNode)
+{
+    node->h = abs(TargetNode->x - node->x) + abs(TargetNode->y - node->y);      //Estimates the minimal distance from a given Node to the TargetNode via Manhattan distance
+}
+
+
+void CalculateG(Node* node, Node* ParentNode, int pathCost)
+{
+
+    int TempG;                              //TempG signifies a new path we have found to the current node.
+    TempG = ParentNode->g + pathCost;
+    if (TempG < (node->g))                  //Checks if the current path that we are exploring is more cost efficient than previously known ones.
+    {
+        node->g = TempG;                    //If it is more efficient, it now becomes the current node's most efficient known path.
+        node->Parent = ParentNode;          //And its parent is recorded, so we can trace the path back.
+    }
+}
+
+void CalculateF(Node* node)
+{
+    node->f = node->h + node->g;
+}
+
+
+Node* FindLowestF(Node** H)                     //Finds the Node with the lowest F cost out of a list. This basically means that this node is the most optimal to choose.
+{
+    int minF = INT_MAX;                         //We initialize an int to keep track of the minimal F value found so far. At the beginning the number will be the biggest possible number, so that any actual list number will be smaller
+    Node* Temp = *H;
+    Node* minNode = NULL;                       //This records the node that has currently been found to be the most optimal
+
+    if (Temp == NULL)                           //Checks if the list is empty
+        return NULL;
+
+    minNode = Temp;
+
+    while (Temp != NULL)                        //Continues the search for the most optimal node while we still have nodes in the list to search
+    {
+        if (Temp->f < minF)                    //Checks and records the node with the lowest F score found so far and keeps track of it to compare it with others
+        {
+            minF = Temp->f;
+            minNode = Temp;
+        }
+
+        else if
+            (Temp->f == minF                             //IF multiple nodes have the same F score, we should judge them by their H score.
+                && minNode != NULL                           //Checks if the minNode isn't Null to prevent bugs
+                && Temp->h <= minNode->h)                    // Checks which node has the lower H score.
+        {
+            minNode = Temp;                              //Sets the optimal node to the node with the lower H cost.
+        }
+
+        Temp = Temp->pNext;                     //Moves the search to the next node in the list.
+    }
+    return minNode;                             //Returns a pointer to the most optimal Node from the list.
+}
+
+
+void Add(Node** H, int x, int y, int IsWall, int g, int h, int f, Node* Parent) //Point** H tuk e imeto na masiva v koito shte dobavqme
+{
+    Node* Temp = (Node*)malloc(sizeof(Node)); //Create the memory needed to make a Point struct. Temp points to this block. This is saved in heap
+    Temp->x = x;
+    Temp->y = y;
+    Temp->IsWall = IsWall;
+    Temp->g = g;
+    Temp->h = h;
+    Temp->f = f;
+    Temp->Parent = Parent;
+    Temp->pNext = *H; //The pNext at this struct = single pointer ( to a point struct)  Head
+    *H = Temp; //The address of head becomes the adress of the current block of memory
+}
+
+
+int Count(Node* H)          //Node * H is basically an array. This function counts the elements in an array
+{
+    int count = 0;
+    while (H != NULL)
+    {
+        count++;
+        H = H->pNext;
+    }
+    return count;
+}
+
+
+void Remove(Node** H, int x, int y)             // You can use name of struct here instead of x and y... I think
+// Node** H za nas e imeto na masiva. Moje da e OpenList, CLosedList tn
+{
+    Node* Temp = *H;
+    Node* Prev = NULL;
+    while (Temp != NULL)
+    {
+        if (Temp->x == x && Temp->y == y)
+        {
+            if (Prev == NULL)
+            {
+                *H = Temp->pNext;
+            }
+            else
+            {
+                Prev->pNext = Temp->pNext;
+            }
+            //free(Temp);             //This absolutely bugs the algorithm.
+            break;
+        }
+        Prev = Temp;
+        Temp = Temp->pNext;
+    }
+
+}
+
+
+int ElementExistsInList(Node** array, int x, int y)                  //This function cheks if an element with values x and y exists in an array. If it does, it returns 1. If there is no such element, it returns 0.
+{
+    Node* node = NULL;
+    node = *array;
+    while (node != NULL)
+    {
+        if (node->x == x && node->y == y)
+        {
+            return 1;
+        }
+        node = node->pNext;
+
+    }
+    return 0;
+}
+
+
+
+int RetraceParents(Node** array, int x, int y)                  //This function cheks if an element with values x and y exists in an array of parents to it. If it does, it returns 1. If there is no such element, it returns 0.
+{
+    Node* node = NULL;
+    node = *array;
+    while (node != NULL)
+    {
+        if (node->x == x && node->y == y)
+        {
+            return 1;
+        }
+        node = node->Parent;
+
+    }
+    return 0;
+}
+
+
+
+
+
+Node* FindElement(Node** array, int x, int y)                  //This function searches the list for an element with specific x and y values and returns a pointer to it. If no element is found, it returns NULL
+{
+    Node* node = NULL;
+    node = *array;
+    while (node != NULL)
+    {
+        if (node->x == x && node->y == y)
+        {
+            return node;
+        }
+        node = node->pNext;
+
+    }
+    return NULL;
+}
+
+
+
+void PrintOriginalMaze(int mazeCols, int mazeRows, Node* StartNode, Node* TargetNode, Node** AllNodes)
+{
+    printf("ORIGINAL MAZE:\n");
+
+    printf(ANSI_COLOR_MAGENTA "\t\t\t\t\t\t\t\t\t\t\t\t\tLEGEND:\n" ANSI_COLOR_RESET);
+    printf(ANSI_COLOR_YELLOW "\t\t\t\t\t\t\t\t\t\t\t\t\t # ==> WALL\n" ANSI_COLOR_RESET);
+    printf("\t\t\t\t\t\t\t\t\t\t\t\t\t - ==> PATH\n");
+    printf(ANSI_COLOR_GREEN "\t\t\t\t\t\t\t\t\t\t\t\t\t @ ==> STARTING POINT\n" ANSI_COLOR_RESET);
+    printf(ANSI_COLOR_RED "\t\t\t\t\t\t\t\t\t\t\t\t\t $ ==> TARGET POINT\n" ANSI_COLOR_RESET);
+    for (int y = 1; y <= mazeRows; y++)
+    {
+        printf("\t\t\t\t\t\t");
+        for (int x = 1; x <= mazeCols; x++)
+        {
+            int index = (y - 1) * mazeCols + (x - 1);          //Maps the x and y coords from the 1d array to their index position in the array
+
+
+            if ((*AllNodes)[index].IsWall == 0)
+            {
+                printf(ANSI_COLOR_YELLOW "# " ANSI_COLOR_RESET);
+            }
+            else if ((*AllNodes)[index].x == StartNode->x && (*AllNodes)[index].y == StartNode->y)
+            {
+                printf(ANSI_COLOR_GREEN "@ " ANSI_COLOR_RESET);
+            }
+            else if ((*AllNodes)[index].x == TargetNode->x && (*AllNodes)[index].y == TargetNode->y)
+            {
+                printf(ANSI_COLOR_RED "$ " ANSI_COLOR_RESET);
+            }
+            else
+            {
+                printf("- ");
+            }
+        }
+        printf("\n\n");
+    }
+
+}
+
+
+
+void PrintCurrentMaze(int mazeCols, int mazeRows, Node* StartNode, Node* TargetNode, Node** AllNodes, Node** Open, Node** Closed)
+{
+    COORD coord = { 0, 5 };
+    SetConsoleCursorPosition(GetStdHandle(STD_OUTPUT_HANDLE), coord);
+    Sleep(180);
+
+
+
+    printf("\n\n\n");
+    for (int y = 1; y <= mazeRows; y++)
+    {
+        printf("\t\t\t\t\t\t");
+        for (int x = 1; x <= mazeCols; x++)
+        {
+            int index = (y - 1) * mazeCols + (x - 1);          //Maps the x and y coords from the 1d array to their index position in the array
+
+
+            if ((*AllNodes)[index].IsWall == 0)
+            {
+                printf(ANSI_COLOR_YELLOW "# " ANSI_COLOR_RESET);
+            }
+            else if ((*AllNodes)[index].x == StartNode->x && (*AllNodes)[index].y == StartNode->y)
+            {
+                printf(ANSI_COLOR_GREEN "A " ANSI_COLOR_RESET);
+            }
+            else if ((*AllNodes)[index].x == TargetNode->x && (*AllNodes)[index].y == TargetNode->y)
+            {
+                printf(ANSI_COLOR_RED " " ANSI_COLOR_RESET);
+            }
+            else if (ElementExistsInList(Open, x, y) != 0)
+            {
+                printf(ANSI_COLOR_GREEN "- " ANSI_COLOR_RESET);
+            }
+            else if (ElementExistsInList(Closed, x, y) != 0)
+            {
+                printf(ANSI_COLOR_CYAN "- " ANSI_COLOR_RESET);
+            }
+            else
+            {
+                printf("- ");
+            }
+        }
+        printf("\n\n");
+    }
+}
+
+
+Node* SolveMaze(Node* current, Node* TargetNode, Node** Open, Node** Closed, Node** AllNodes, int maze_cols, int maze_rows)  //This should take more stuff as arguments
+{
+
+
+    while (*Open != NULL)
+    {
+        current = FindLowestF(Open);
+        if (current == NULL)
+        {
+            return NULL; // No solution found
+        }
+        int ArrayC = Count(*Open);              //Counts how many elements are in the OpenSet.
+        if (ArrayC == 0)                        // If there are 0 elements in OpenSet, it means that there are no more nodes that we can evaluate.
+        {
+            return NULL;                        // This means that the maze has no solution
+
+        }
+        if (current->x == TargetNode->x && current->y == TargetNode->y)             //If we have already arrived at the target node, we should save it to reconstruct a path for the solution of the maze.
+        {
+            return current;
+
+        }
+        else                                     //If we have not found the solution to the maze yet, we should keep performing our algorithm until we find one.            
+        {
+            //Evaluate the neighbours of current.
+
+
+            //NORTH NEIGHBOUR
+
+            if (current->y > 1 && current->IsWall != 0)
+            {
+                int CoordToIndex = 0;
+                CoordToIndex = ((current->y - 1) - 1) * maze_cols + (current->x - 1);                     //Finds the index of the element with specific x and y values from the array with all nodes.
+
+
+                Node* North_neighbour = &((*AllNodes)[CoordToIndex]);                                             //Sets the North neighbour to be the element with coords y - 1 from the current.
+                if (North_neighbour->IsWall != 0)
+                {
+                    CalculateH(North_neighbour, TargetNode);
+                    CalculateG(North_neighbour, current, PATH_COST);
+                    CalculateF(North_neighbour);
+                    if (North_neighbour->x == TargetNode->x && North_neighbour->y == TargetNode->y)             //Is the north neighhbour the target node? If not, let's continue with the algorithm
+                    {
+                        return North_neighbour;                                                                 //If it is, we should return it, because it holds the solution to the maze.
+
+                    }
+                    else
+                    {
+
+                        int ElementExists = ElementExistsInList(Open, North_neighbour->x, North_neighbour->y);
+                        Node* ExistingElement = FindElement(Open, North_neighbour->x, North_neighbour->y);
+                        int ElExInC = ElementExistsInList(Closed, North_neighbour->x, North_neighbour->y);
+                        if (ElExInC == 0)
+                        {
+                            if (ElementExists == 0 || North_neighbour->g < ExistingElement->g)                                                                  //If the element is not in the array OR if we have found a better g score for the element through this new path
+                            {
+                                Add(Open, North_neighbour->x, North_neighbour->y, North_neighbour->IsWall, North_neighbour->g, North_neighbour->h, North_neighbour->f, North_neighbour->Parent);        //We should add the element into the array
+                            }
+                        }
+                    }
+                }
+
+            }
+
+
+            // EAST NEIGHBOUR
+
+            if (current->x < maze_cols && current->IsWall != 0)
+            {
+                int CoordToIndex = 0;
+                CoordToIndex = (current->y - 1) * maze_cols + ((current->x - 1) + 1);                     //Finds the index of the element with specific x and y values from the array with all nodes.
+
+                Node* East_neighbour = &((*AllNodes)[CoordToIndex]);                                            //Sets the East neighbour to be the element with coords x + 1 from the current.
+                if (East_neighbour->IsWall != 0)
+                {
+                    CalculateH(East_neighbour, TargetNode);
+                    CalculateG(East_neighbour, current, PATH_COST);
+                    CalculateF(East_neighbour);
+                    if (East_neighbour->x == TargetNode->x && East_neighbour->y == TargetNode->y)             //Is the East neighhbour the target node? If not, let's continue with the algorithm
+                    {
+                        return East_neighbour;                                                                //If it is, we should return it, because it holds the solution to the maze.
+
+                    }
+                    else
+                    {
+
+                        int ElementExists = ElementExistsInList(Open, East_neighbour->x, East_neighbour->y);
+                        Node* ExistingElement = FindElement(Open, East_neighbour->x, East_neighbour->y);
+                        int ElExInC = ElementExistsInList(Closed, East_neighbour->x, East_neighbour->y);
+                        if (ElExInC == 0)
+                        {
+                            if (ElementExists == 0 || East_neighbour->g < ExistingElement->g)                                                                  //If the element is not in the array OR if we have found a better g score for the element through this new path
+                            {
+                                Add(Open, East_neighbour->x, East_neighbour->y, East_neighbour->IsWall, East_neighbour->g, East_neighbour->h, East_neighbour->f, East_neighbour->Parent);        //We should add the element into the array
+                            }
+                        }
+
+                    }
+                }
+
+            }
+
+
+
+
+            //SOUTH NEIGHBOUR
+
+            if (current->y < maze_rows && current->IsWall != 0)
+            {
+                int CoordToIndex = 0;
+                CoordToIndex = ((current->y - 1) + 1) * maze_cols + (current->x - 1);                       //Finds the index of the element with specific x and y values from the array with all nodes.
+
+
+                Node* South_neighbour = &((*AllNodes)[CoordToIndex]);                                             //Sets the South neighbour to be the element with coords y + 1 from the current.
+                if (South_neighbour->IsWall != 0)
+                {
+                    CalculateH(South_neighbour, TargetNode);
+                    CalculateG(South_neighbour, current, PATH_COST);
+                    CalculateF(South_neighbour);
+                    if (South_neighbour->x == TargetNode->x && South_neighbour->y == TargetNode->y)             //Is the South neighhbour the target node? If not, let's continue with the algorithm
+                    {
+                        return South_neighbour;                                                                 //If it is, we should return it, because it holds the solution to the maze.
+
+                    }
+                    else
+                    {
+
+                        int ElementExists = ElementExistsInList(Open, South_neighbour->x, South_neighbour->y);
+                        Node* ExistingElement = FindElement(Open, South_neighbour->x, South_neighbour->y);
+                        int ElExInC = ElementExistsInList(Closed, South_neighbour->x, South_neighbour->y);
+                        if (ElExInC == 0)
+                        {
+                            if (ElementExists == 0 || South_neighbour->g < ExistingElement->g)                                                                  //If the element is not in the array OR if we have found a better g score for the element through this new path
+                            {
+                                Add(Open, South_neighbour->x, South_neighbour->y, South_neighbour->IsWall, South_neighbour->g, South_neighbour->h, South_neighbour->f, South_neighbour->Parent);        //We should add the element into the array
+                            }
+                        }
+
+                    }
+                }
+
+            }
+
+
+            //WEST NEIGHBOUR
+
+
+
+            if (current->x > 1 && current->IsWall != 0)
+            {
+                int CoordToIndex = 0;
+                CoordToIndex = (current->y - 1) * maze_cols + ((current->x - 1) - 1);                     //Finds the index of the element with specific x and y values from the array with all nodes.
+
+
+                Node* West_neighbour = &((*AllNodes)[CoordToIndex]);                                            //Sets the West neighbour to be the element with coords x - 1 from the current.
+                if (West_neighbour->IsWall != 0)
+                {
+                    CalculateH(West_neighbour, TargetNode);
+                    CalculateG(West_neighbour, current, PATH_COST);
+                    CalculateF(West_neighbour);
+                    if (West_neighbour->x == TargetNode->x && West_neighbour->y == TargetNode->y)             //Is the West neighhbour the target node? If not, let's continue with the algorithm
+                    {
+                        return West_neighbour;                                                                //If it is, we should return it, because it holds the solution to the maze.
+
+                    }
+                    else
+                    {
+
+                        int ElementExists = ElementExistsInList(Open, West_neighbour->x, West_neighbour->y);
+                        Node* ExistingElement = FindElement(Open, West_neighbour->x, West_neighbour->y);
+                        int ElExInC = ElementExistsInList(Closed, West_neighbour->x, West_neighbour->y);
+                        if (ElExInC == 0)
+                        {
+                            if (ElementExists == 0 || West_neighbour->g < ExistingElement->g)                                                                  //If the element is not in the array OR if we have found a better g score for the element through this new path
+                            {
+                                Add(Open, West_neighbour->x, West_neighbour->y, West_neighbour->IsWall, West_neighbour->g, West_neighbour->h, West_neighbour->f, West_neighbour->Parent);        //We should add the element into the array
+                            }
+                        }
+
+                    }
+                }
+
+            }
+
+
+            //Prepping for next iteration
+
+
+
+            Add(Closed, current->x, current->y, current->IsWall, current->g, current->h, current->f, current->Parent);              //We have evaluated all of the current Node's neighbours, so we should add it to ClosedSet
+            Remove(Open, current->x, current->y);                                                                                   //And also remove it from OpenSet
+            PrintCurrentMaze(maze_cols, maze_rows, current, TargetNode, AllNodes, Open, Closed);
+            if (*Open == NULL)
+            {
+                return NULL;
+            }
+        }
+    }
+
+
+
+}
+
+
+int main()
+{
+
+
+
+
+
+    //...............................................................................
+    //...............................................................................
+    //READING MAZE STRUCTURE FROM FILE & CREATING DYNAMIC ARRAY TO FIR ALL STRUCTURES
+    //...............................................................................
+    //...............................................................................
+
+
+    FILE* file;
+    file = fopen("file.txt", "r");
+    if (file == NULL) {
+        printf("Error opening file\n");
+        return 1;
+    }
+
+    int read = 0;       // Stores the number of field values that we have read from the file.
+    int records = 0;    // Counts how many records we have read from the file and saved to structs.
+
+    int n, m;                                                   //Saves the size of the maze. n = number of Cols, m = number of Rows.
+    if (fscanf(file, "%d,%d\n", &n, &m) != 2) {
+        printf("Invalid format for matrix size.\n");
+        fclose(file);
+        return 1;
+    }
+
+    int Sx, Sy;                                                 //Saves the coordinates of the Start Node.
+    if (fscanf(file, "%d,%d\n", &Sx, &Sy) != 2) {
+        printf("Invalid format for Starting point coordinates.\n");
+        fclose(file);
+        return 1;
+    }
+
+    int Tx, Ty;                                                 //Saves the coordinates of the Target Node.
+    if (fscanf(file, "%d,%d\n", &Tx, &Ty) != 2) {
+        printf("Invalid format for Target point coordinates.\n");
+        fclose(file);
+        return 1;
+    }
+
+    Node* AllNodes = (Node*)malloc(sizeof(Node) * n * m);               //Dynamically Creates an array that will hold every node. A node is an individual record from the file.
+    if (AllNodes == NULL) {
+        printf("Memory allocation failed.\n");
+        fclose(file);
+        return 1;
+    }
+
+    while (records < n * m && (read = fscanf(file, "%d,%d,%d\n", &AllNodes[records].x, &AllNodes[records].y, &AllNodes[records].IsWall)) == 3) {                //Scans every record from the file and saves its data in array of structures
+        records++;                                                                                                                                      //Does this until it has checked each record that can fit in an array of size n*m
+        //Or until one of the records has incorrectly formated data ( x,y, isWall)
+        //So it will exit the loop if is sees something like        (1,1,1,1) or (1,1)
+    }
+
+    if (records != n * m) {
+        printf("Not enough records in the file to match matrix size.\n");
+        free(AllNodes);
+        fclose(file);
+        return 1;
+    }
+
+    if (fscanf(file, "%*[^\n]") != EOF) { // Check if there are additional records in the file
+        printf("File format incorrect. Too many records in the file.\n");
+        free(AllNodes);
+        fclose(file);
+        return 1;
+    }
+
+    fclose(file);
+
+
+
+
+
+
+    //INITIALIZATIONS:
+
+    //Initializing Start Node and End Node
+    Node StartNode, TargetNode;
+
+    StartNode.x = Sx;
+    StartNode.y = Sy;
+    TargetNode.x = Tx;
+    TargetNode.y = Ty;
+
+    for (int i = 0; i < n * m; i++)
+    {
+        if (AllNodes[i].x != StartNode.x || AllNodes[i].y != StartNode.y)
+        {
+            AllNodes[i].g = INT_MAX;
+        }
+        else
+        {
+            AllNodes[i].g = 0;
+        }
+    }
+
+    StartNode.g = 0;
+    StartNode.Parent = NULL;
+
+    CalculateH(&StartNode, &TargetNode);
+    StartNode.f = StartNode.h;
+    int cIndex = (StartNode.y - 1) * n + (StartNode.x - 1);                     //Index of StartNode in AllNodes
+    int tIndex = (TargetNode.y - 1) * n + (TargetNode.x - 1);                   //Index of TargetNode in AllNodes
+    if (AllNodes[cIndex].IsWall == 0)
+    {
+        printf("Starting point is a wall, please remake the maze.");
+        return 1;
+    }
+
+    if (AllNodes[tIndex].IsWall == 0)
+    {
+        printf("Target point is a wall, please remake the maze.");
+        return 1;
+    }
+
+
+    StartNode.IsWall = AllNodes[cIndex].IsWall;
+    StartNode.pNext = NULL;
+    TargetNode.IsWall = AllNodes[tIndex].IsWall;
+
+
+
+    //Initializing OpenSet,ClosedSet and solving the maze.
+
+
+    Node* OpenSet = NULL;
+    Node* ClosedSet = NULL;
+    Add(&OpenSet, StartNode.x, StartNode.y, StartNode.IsWall, StartNode.g, StartNode.h, StartNode.f, StartNode.Parent);
+    Node* CompletedMaze = SolveMaze(&StartNode, &TargetNode, &OpenSet, &ClosedSet, &AllNodes, n, m);
+    PrintOriginalMaze(n, m, &StartNode, &TargetNode, &AllNodes);
+    if (CompletedMaze == NULL)
+    {
+        printf("This maze has no solution from given starting point\n\n\n");
+        PrintOriginalMaze(n, m, &StartNode, &TargetNode, &AllNodes);
+        return 0;
+    }
+
+
+
+
+
+
+
+    //...............................................................................
+    //...............................................................................
+    //                                      VISUALS
+    //...............................................................................
+    //...............................................................................
+
+
+
+
+
+
+
+
+    printf("\n\n\n");
+    printf("SolvedMaze:\n\n\n");
+    for (int y = 1; y <= m; y++)
+    {
+        printf("\t\t\t\t\t\t");
+        for (int x = 1; x <= n; x++)
+        {
+            int index = (y - 1) * n + (x - 1);          //Maps the x and y coords from the 1d array to their index position in the array
+
+
+            if (AllNodes[index].IsWall == 0)
+            {
+                printf(ANSI_COLOR_YELLOW "# " ANSI_COLOR_RESET);
+            }
+            else if (AllNodes[index].x == StartNode.x && AllNodes[index].y == StartNode.y)
+            {
+                printf(ANSI_COLOR_GREEN "@ " ANSI_COLOR_RESET);
+            }
+            else if (AllNodes[index].x == TargetNode.x && AllNodes[index].y == TargetNode.y)
+            {
+                printf(ANSI_COLOR_RED "$ " ANSI_COLOR_RESET);
+            }
+            else
+            {
+                if (RetraceParents(&CompletedMaze, x, y) != 0)
+                {
+                    printf(ANSI_COLOR_RED "- " ANSI_COLOR_RESET);
+                }
+                else
+                {
+                    printf("- ");
+                }
+
+            }
+        }
+        printf("\n\n");
+    }
+
+
+
+
+
+    free(AllNodes);
+    free(OpenSet);
+    free(ClosedSet);
+    return 0;
+}
