@@ -1,0 +1,86 @@
+
+import pygame
+
+# Set up colors
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+GREEN = (0, 255, 0)
+RED = (255, 0, 0)
+
+# Initialize Pygame
+pygame.init()
+
+# Ask user for maze dimensions
+width = int(input("Enter the width of the maze: "))
+height = int(input("Enter the height of the maze: "))
+
+# Set up screen dimensions based on maze size
+SCREEN_WIDTH = width * 20
+SCREEN_HEIGHT = height * 20
+CELL_SIZE = 20
+
+# Set up the screen
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Maze Builder")
+
+# Initialize maze matrix
+maze = [[1 for _ in range(width)] for _ in range(height)]  # Initially every cell is a path
+start_point = None
+end_point = None
+
+# Main loop
+running = True
+while running:
+    screen.fill(WHITE)
+    # Draw maze boundaries
+    for x in range(width + 1):
+        pygame.draw.line(screen, BLACK, (x * CELL_SIZE, 0), (x * CELL_SIZE, SCREEN_HEIGHT))
+    for y in range(height + 1):
+        pygame.draw.line(screen, BLACK, (0, y * CELL_SIZE), (SCREEN_WIDTH, y * CELL_SIZE))
+    # Draw maze
+    for y in range(height):
+        for x in range(width):
+            color = BLACK if maze[y][x] == 0 else WHITE
+            pygame.draw.rect(screen, color, (x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+    # Draw start node
+    if start_point:
+        pygame.draw.rect(screen, GREEN, (start_point[0] * CELL_SIZE, start_point[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+    # Draw end node
+    if end_point:
+        pygame.draw.rect(screen, RED, (end_point[0] * CELL_SIZE, end_point[1] * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+
+    # Handle events
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.MOUSEBUTTONDOWN:
+            # Get mouse position
+            pos = pygame.mouse.get_pos()
+            x, y = pos[0] // CELL_SIZE, pos[1] // CELL_SIZE
+            if 0 <= x < width and 0 <= y < height:
+                if event.button == 1:  # Left click - set cell to wall
+                    maze[y][x] = 0
+                elif event.button == 3:  # Right click - set cell to path
+                    maze[y][x] = 1
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_s:  # Set start point
+                pos = pygame.mouse.get_pos()
+                start_point = (pos[0] // CELL_SIZE, pos[1] // CELL_SIZE)  # Set start point directly without rounding
+            elif event.key == pygame.K_e:  # Set end point
+                pos = pygame.mouse.get_pos()
+                end_point = (pos[0] // CELL_SIZE, pos[1] // CELL_SIZE)  # Set end point directly without rounding
+            elif event.key == pygame.K_RETURN:  # Save maze to file
+                with open("maze.txt", "w") as f:
+                    f.write(f"{width},{height}\n")
+                    if start_point:
+                        f.write(f"{start_point[0]+1},{start_point[1]+1}\n")  # Adjusted to 1-based index
+                    if end_point:
+                        f.write(f"{end_point[0]+1},{end_point[1]+1}\n")  # Adjusted to 1-based index
+                    for y in range(height):
+                        for x in range(width):
+                            f.write(f"{x+1},{y+1},{maze[y][x]}\n")  # Adjusted to 1-based index
+
+    # Update display
+    pygame.display.flip()
+
+pygame.quit()
